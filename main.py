@@ -43,7 +43,7 @@ class Scene:
                 self.staticComponents.append(StaticComponent(obj.position, obj.eulers))
             else:
                 self.dynamicComponents.append(DynamicComponent(obj.position, obj.eulers, obj.health))
-            self.meshes.append(Mesh("objects/"+obj.filename, obj.position))
+            self.meshes.append(MeshNoTex("objects/"+obj.filename, obj.position))
 
 
         self.player = DynamicComponent(
@@ -259,7 +259,7 @@ class RenderPass:
         glDeleteProgram(self.shader)
 
 
-class Mesh:
+class MeshNoTex:
 
     def __init__(self, filename, position):
         self.position = position
