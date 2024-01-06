@@ -77,7 +77,7 @@ class GraphicsEngine:
         pg.display.gl_set_attribute(pg.GL_CONTEXT_MINOR_VERSION, 3)
         pg.display.gl_set_attribute(pg.GL_CONTEXT_PROFILE_MASK,
                                     pg.GL_CONTEXT_PROFILE_CORE)
-        pg.display.set_mode((640,480), pg.OPENGL|pg.DOUBLEBUF)
+        pg.display.set_mode((1280,720), pg.OPENGL|pg.DOUBLEBUF)
 
         glClearColor(self.colorPalette["darkBlue"][0],self.colorPalette["darkBlue"][1],self.colorPalette["darkBlue"][2], 1)
         glEnable(GL_DEPTH_TEST)
@@ -210,6 +210,10 @@ class CameraControl:
             self.i = 0  # Reset mouse position
         pg.mouse.set_visible(False) 
 
+    def adjustSpeed(self, framerate):
+        self.camera_speed = 0.01 * framerate
+
+
 class RenderPass:
 
     def __init__(self, shader):
@@ -217,8 +221,8 @@ class RenderPass:
         self.cameraControl = CameraControl()
         glUseProgram(self.shader)
         projectionTransform = pyrr.matrix44.create_perspective_projection(
-            fovy=90, aspect = 800/600,
-            near = 0.1, far = 100, dtype=np.float32
+            fovy=90, aspect = 1280/720,
+            near = 0.1, far = 50, dtype=np.float32
         )
         glUniformMatrix4fv(
             glGetUniformLocation(self.shader, "projection"),
@@ -351,6 +355,8 @@ class App:
             self.renderer.renderPass.cameraControl.handleKeys()
             self.renderer.renderPass.cameraControl.handleMouse()
             self.calculateFramerate()
+            self.renderer.renderPass.cameraControl.adjustSpeed(self.frameTime)
+            
         self.quit()
 
 
@@ -390,4 +396,4 @@ class RawObject:
 
         
     
-myApp = App(800,600)
+myApp = App(1280,720)
