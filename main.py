@@ -43,7 +43,7 @@ class Scene:
                 self.staticComponents.append(StaticComponent(obj.position, obj.eulers))
             else:
                 self.dynamicComponents.append(DynamicComponent(obj.position, obj.eulers, obj.health))
-            self.meshes.append(MeshNoTex("objects/"+obj.filename, obj.position))
+            self.meshes.append(Mesh("objects/"+obj.filename, obj.position, obj.textureID))
 
 
         self.player = DynamicComponent(
@@ -62,6 +62,15 @@ class Scene:
         pass
 
 
+class Texture:
+    
+        def __init__(self, filename, id):
+            self.id = id
+            self.filename = filename
+            self.texture = 0
+
+       
+
 class GraphicsEngine:
 
     def __init__(self):
@@ -70,6 +79,7 @@ class GraphicsEngine:
             "darkBlue": np.array([0,13/255,107/255], dtype = np.float32),
             "yellow": np.array([246/255,236/255,169/255], dtype = np.float32)
         }
+        
 
         # Initializing GE with pygame and opengl:
         pg.init()
@@ -84,8 +94,11 @@ class GraphicsEngine:
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA)
 
-        shader = self.createShader("shaders/vertex","shaders/fragment")
-        self.renderPass = RenderPass(shader)
+        self.shader = self.createShader("shaders/vertextex","shaders/fragmenttex")
+        glUseProgram(self.shader)
+
+        self.renderPass = RenderPass(self.shader)
+    
 
     def createShader(self, vertexFilepath, fragmentFilepath):
 
@@ -94,8 +107,17 @@ class GraphicsEngine:
 
         with open(fragmentFilepath, 'r') as f:
             fragmentSrc = f.readlines()
-        shader = compileProgram(compileShader(vertexSrc, GL_VERTEX_SHADER),
-                                compileShader(fragmentSrc, GL_FRAGMENT_SHADER))
+        shader = compileProgram(
+            compileShader(vertexSrc, GL_VERTEX_SHADER),
+            compileShader(fragmentSrc, GL_FRAGMENT_SHADER))
+        # Check the link status
+        link_status = glGetProgramiv(shader, GL_LINK_STATUS)
+        if link_status == GL_FALSE:
+            # The link failed. Print the info log.
+            info_log = glGetProgramInfoLog(shader)
+            print(f"Shader link failed:\n{info_log}")
+
+
         return shader
     def render(self,scene):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -227,9 +249,10 @@ class RenderPass:
         self.modelMatrixLocation = glGetUniformLocation(self.shader, "model")
         self.viewMatrixLocation = glGetUniformLocation(self.shader, "view")
         self.colorLoc = glGetUniformLocation(self.shader, "object_color")
-
+        self.tex_loc = glGetUniformLocation(self.shader, "imageTexture")
     def render(self, scene, engine):
         glUseProgram(self.shader)
+        glUniform1i(self.tex_loc, 0)
 
         viewTransform = pyrr.matrix44.create_look_at(
             eye = self.cameraControl.camera_position,
@@ -239,6 +262,8 @@ class RenderPass:
         glUniformMatrix4fv(self.viewMatrixLocation, 1, GL_FALSE, viewTransform)
 
         for static in scene.meshes:
+            
+
             glUniform3fv(self.colorLoc, 1, engine.colorPalette["yellow"])
             modelTransform = pyrr.matrix44.create_identity(dtype=np.float32)
 
@@ -251,12 +276,141 @@ class RenderPass:
                 m2 = pyrr.matrix44.create_from_translation(vec = np.array(static.position, dtype = np.float32))
             )
             glUniformMatrix4fv(self.modelMatrixLocation, 1, GL_FALSE, modelTransform)
-
+            static.texture.use(0)
             glBindVertexArray(static.vao)
             glDrawArrays(GL_TRIANGLES, 0, static.vertexCount)
 
     def destroy(self):
         glDeleteProgram(self.shader)
+
+
+class Material:
+    def __init__(self, textureID):
+        self.texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.texture)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR)
+        image = pg.image.load(f"textures/tex{textureID}.jpg").convert()
+        imgWidth = image.get_width()
+        imgHeight = image.get_height()
+        imgData = pg.image.tostring(image, "RGBA")
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgWidth, imgHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, imgData)
+        glGenerateMipmap(GL_TEXTURE_2D)
+        
+    def use(self,i):
+        glActiveTexture(GL_TEXTURE0+i)
+        glBindTexture(GL_TEXTURE_2D, self.texture)
+    def destroy(self):
+        glDeleteTextures(1, (self.texture,))
+
+
+class Mesh:
+    
+        def __init__(self, filename, position, textureID):
+            self.position = position
+            
+            self.texture = Material(textureID)
+
+            self.verticies = self.loadMesh(filename)
+            self.vertexCount = len(self.verticies)//8
+
+            self.verticies = np.array(self.verticies, dtype=np.float32)
+
+            self.vao = glGenVertexArrays(1)
+            glBindVertexArray(self.vao)
+            self.vbo = glGenBuffers(1)
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+            glBufferData(GL_ARRAY_BUFFER,self.verticies.nbytes, self.verticies, GL_STATIC_DRAW)
+
+            glEnableVertexAttribArray(0)
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 32, ctypes.c_void_p(0)) #Vertex Position
+            glEnableVertexAttribArray(1)
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 32, ctypes.c_void_p(12)) #Vertex Normal
+            glEnableVertexAttribArray(2)
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 32, ctypes.c_void_p(20)) #Vertex Texture Coordinate
+
+        def loadMesh(self,filename):
+            v = []
+            vn = []
+            vt = []
+            verticies = []
+            currentObject = ""
+            with open(filename, 'r')as f:
+                line = f.readline()
+                while line:
+                    line = line.replace("\n","")
+                    words = line.split(" ")
+                    if words[0] == "o":
+                        currentObject = words[1]
+                    elif words[0] == "v":
+                        line = line.replace("v ","")
+                        line = line.split(" ")
+                        l=[float(x) for x in line]
+                        v.append(l)
+                    elif words[0] == "vn":
+                        line = line.replace("vn ","")
+                        line = line.split(" ")
+                        l=[float(x) for x in line]
+                        vn.append(l)
+                    elif words[0] == "vt":
+                        line = line.replace("vt ","")
+                        line = line.split(" ")
+                        l=[float(x) for x in line]
+                        vt.append(l)
+                    elif words[0] == "f":
+                        line = line.replace("f ","")
+                        line = line.split(" ")
+                        faceVerticies = []
+                        for vertex in line:
+                            l = vertex.split("/")
+                            position = int(l[0])
+                            normal = int(l[2])
+                            texture = int(l[1])
+                            faceVerticies.append(v[position-1])
+                            faceVerticies.append(vn[normal-1])
+                            faceVerticies.append(vt[texture-1])
+                        trianglesInFace = len(line) - 2
+
+                        vertexOrder = []
+
+                        for i in range(trianglesInFace):
+                            vertexOrder.append(0)
+                            vertexOrder.append(i+1)
+                            vertexOrder.append(i+2)
+                        for i in vertexOrder:
+                            for x in faceVerticies[i]:#chyba tu
+                                verticies.append(x)
+                    line = f.readline()
+            return verticies
+        
+        """def useTexture(self):
+            
+            glBindTexture(GL_TEXTURE_2D, self.texture-1)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+            # Set texture filtering parameters
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+            # Load image
+            image = pg.image.load("textures/tex"+str(self.textureID)+".jpg")
+            img_data = pg.image.tostring(image, "RGBA", 1)
+            width = image.get_width()
+            height = image.get_height()
+
+            # Create texture
+            glBindTexture(GL_TEXTURE_2D, self.texture-1)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img_data)
+            glGenerateMipmap(GL_TEXTURE_2D)
+            
+            # Bind the texture for this object
+            glActiveTexture(GL_TEXTURE0+self.texture-1)
+            glBindTexture(GL_TEXTURE_2D, self.texture-1)
+
+            # Set the texture sampler uniform"""
+            
 
 
 class MeshNoTex:
@@ -373,7 +527,7 @@ class App:
             line = f.readline()
             while line:
                 words = line.split(" ")
-                objList.append(RawObject(words[0], [float(words[1]), float(words[2]), float(words[3])], int(words[4])))
+                objList.append(RawObject(words[0], [float(words[1]), float(words[2]), float(words[3])], int(words[4]), int(words[5])))
                 line = f.readline()
         return objList
     def quit(self):
@@ -381,10 +535,12 @@ class App:
 
 
 class RawObject:
-    def __init__(self, filename, position, isStatic):
+    def __init__(self, filename, position, isStatic, textureID):
         self.filename = filename
         self.position = position
         self.isStatic = isStatic
+        self.texture = None
+        self.textureID = textureID
         self.eulers = [0,0,0]
         self.health = 10
 
