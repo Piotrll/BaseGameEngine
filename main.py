@@ -368,9 +368,7 @@ class Mesh:
                             position = int(l[0])
                             normal = int(l[2])
                             texture = int(l[1])
-                            faceVerticies.append(v[position-1])
-                            faceVerticies.append(vn[normal-1])
-                            faceVerticies.append(vt[texture-1])
+                            faceVerticies.append(v[position-1] + vn[normal-1] + vt[texture-1])
                         trianglesInFace = len(line) - 2
 
                         vertexOrder = []
@@ -380,8 +378,7 @@ class Mesh:
                             vertexOrder.append(i+1)
                             vertexOrder.append(i+2)
                         for i in vertexOrder:
-                            for x in faceVerticies[i]:#chyba tu
-                                verticies.append(x)
+                            verticies.extend(faceVerticies[i])
                     line = f.readline()
             return verticies
         
