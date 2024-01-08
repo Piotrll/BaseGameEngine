@@ -6,5 +6,5 @@ nameOfObject.obj 1 2 1 1
 
 1. Name of the file
 2. X Y Z Coordinates
-3. Last one represents if Object is static or not, thou as I'am writing this I have not yet implemented
-   moving objects beside camera control, so 1 is static and 0 is dynamic (future me concern)
+3. Fifth one represents if Object is static or not, thou as I'am writing this I have not yet implemented moving objects beside camera control, so 1 is static and 0 is dynamic (future me concern)
+4. Texture id corresponding to the one in texList
