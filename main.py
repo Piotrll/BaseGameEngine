@@ -2,7 +2,7 @@ import pygame as pg
 from OpenGL.GL import *
 from OpenGL.GL.shaders import compileProgram, compileShader
 import numpy as np
-import pyrr
+import pyrr, os
 
 class StaticComponent:
 
@@ -27,15 +27,12 @@ class Scene:
     def __init__(self, objList):
 
         self.objList = objList
+        self.textures = self.getTexturesFromList()
+        self.material = Material(self.textures)
         self.objectFilenameList = []
         self.meshes = []
         self.staticComponents = []
         self.dynamicComponents = []
-        self.bullets = []
-        self.powerups = []
-        self.enemySpawnRate = 0.1
-        self.powerupSpawnRate = 0.05
-        self.enemyShootRate = 0.1
 
         for obj in self.objList:
             self.objectFilenameList.append(obj.filename)
@@ -53,21 +50,41 @@ class Scene:
         )
         
 
-        
+    def getTexturesFromList(self):
+        texList = []
+        with open("textures/texList", "r") as f:
+            line = f.readline()
+            while line:
+                words = line.split(" ")
+                texList.append(Texture(int(words[0]), words[1].replace("\n", "")))
+                line = f.readline()
+        return texList    
 
     def update(self, rate):
         pass
 
     def move_player(self,dPos):
         pass
-
+    def destroy(self):
+        for mesh in self.meshes:
+            mesh.destroy()
+        for component in self.staticComponents:
+            del component
+        for component in self.dynamicComponents:
+            del component
+        del self.player
+        del self.meshes
+        del self.staticComponents
+        del self.dynamicComponents
+        del self.objList
+        del self.objectFilenameList
 
 class Texture:
     
-        def __init__(self, filename, id):
-            self.id = id
-            self.filename = filename
-            self.texture = 0
+    def __init__(self, id, filename):
+        self.id = id
+        self.filename = filename
+        self.texture = 0
 
        
 
@@ -83,8 +100,8 @@ class GraphicsEngine:
 
         # Initializing GE with pygame and opengl:
         pg.init()
-        pg.display.gl_set_attribute(pg.GL_CONTEXT_MAJOR_VERSION, 3)
-        pg.display.gl_set_attribute(pg.GL_CONTEXT_MINOR_VERSION, 3)
+        pg.display.gl_set_attribute(pg.GL_CONTEXT_MAJOR_VERSION, 4)
+        pg.display.gl_set_attribute(pg.GL_CONTEXT_MINOR_VERSION, 4)
         pg.display.gl_set_attribute(pg.GL_CONTEXT_PROFILE_MASK,
                                     pg.GL_CONTEXT_PROFILE_CORE)
         pg.display.set_mode((640,480), pg.OPENGL|pg.DOUBLEBUF)
@@ -249,10 +266,9 @@ class RenderPass:
         self.modelMatrixLocation = glGetUniformLocation(self.shader, "model")
         self.viewMatrixLocation = glGetUniformLocation(self.shader, "view")
         self.colorLoc = glGetUniformLocation(self.shader, "object_color")
-        self.tex_loc = glGetUniformLocation(self.shader, "imageTexture")
+        
     def render(self, scene, engine):
         glUseProgram(self.shader)
-        glUniform1i(self.tex_loc, 0)
 
         viewTransform = pyrr.matrix44.create_look_at(
             eye = self.cameraControl.camera_position,
@@ -261,10 +277,12 @@ class RenderPass:
         )
         glUniformMatrix4fv(self.viewMatrixLocation, 1, GL_FALSE, viewTransform)
 
-        for static in scene.meshes:
+        self.tex_loc = glGetUniformLocation(self.shader, "imageTexture")
+        for objectc in scene.meshes:
+            glUniform1i(self.tex_loc, objectc.material)
+            scene.material.use(objectc.material)
             
-
-            glUniform3fv(self.colorLoc, 1, engine.colorPalette["yellow"])
+            #glUniform3fv(self.colorLoc, 1, engine.colorPalette["yellow"])
             modelTransform = pyrr.matrix44.create_identity(dtype=np.float32)
 
             modelTransform = pyrr.matrix44.multiply(
@@ -273,37 +291,49 @@ class RenderPass:
             )
             modelTransform = pyrr.matrix44.multiply(
                 m1 = modelTransform,
-                m2 = pyrr.matrix44.create_from_translation(vec = np.array(static.position, dtype = np.float32))
+                m2 = pyrr.matrix44.create_from_translation(vec = np.array(objectc.position, dtype = np.float32))
             )
             glUniformMatrix4fv(self.modelMatrixLocation, 1, GL_FALSE, modelTransform)
-            static.texture.use(0)
-            glBindVertexArray(static.vao)
-            glDrawArrays(GL_TRIANGLES, 0, static.vertexCount)
+            
+            glBindVertexArray(objectc.vao)
+            glDrawArrays(GL_TRIANGLES, 0, objectc.vertexCount)
 
     def destroy(self):
         glDeleteProgram(self.shader)
 
 
 class Material:
-    def __init__(self, textureID):
-        self.texture = glGenTextures(1)
-        glBindTexture(GL_TEXTURE_2D, self.texture)
+    def __init__(self, texList):
+        self.texList = texList
+        self.textures = {}
+        for tex in self.texList:
+            self.load(tex)
+
+    def load(self, texturecurr):
+        textureID = glGenTextures(1)
+
+        glActiveTexture(GL_TEXTURE0 + textureID)
+        glBindTexture(GL_TEXTURE_2D, textureID)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR)
-        image = pg.image.load(f"textures/tex{textureID}.jpg").convert()
+        image = pg.image.load(os.path.join("textures", texturecurr.filename.strip())).convert()
         imgWidth = image.get_width()
         imgHeight = image.get_height()
         imgData = pg.image.tostring(image, "RGBA")
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgWidth, imgHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, imgData)
         glGenerateMipmap(GL_TEXTURE_2D)
-        
-    def use(self,i):
-        glActiveTexture(GL_TEXTURE0+i)
-        glBindTexture(GL_TEXTURE_2D, self.texture)
+        self.textures[texturecurr.id] = textureID
+
+    def use(self, textureID):
+        glActiveTexture(GL_TEXTURE0+textureID)
+        glBindTexture(GL_TEXTURE_2D, self.textures[textureID])
+
+    
     def destroy(self):
-        glDeleteTextures(1, (self.texture,))
+        for texture in self.textures:
+            glDeleteTextures(1, (texture,))
 
 
 class Mesh:
@@ -311,7 +341,7 @@ class Mesh:
         def __init__(self, filename, position, textureID):
             self.position = position
             
-            self.texture = Material(textureID)
+            self.material = textureID
 
             self.verticies = self.loadMesh(filename)
             self.vertexCount = len(self.verticies)//8
@@ -329,7 +359,7 @@ class Mesh:
             glEnableVertexAttribArray(1)
             glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 32, ctypes.c_void_p(12)) #Vertex Normal
             glEnableVertexAttribArray(2)
-            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 32, ctypes.c_void_p(20)) #Vertex Texture Coordinate
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 32, ctypes.c_void_p(24)) #Vertex Texture Coordinate
 
         def loadMesh(self,filename):
             v = []
@@ -367,8 +397,13 @@ class Mesh:
                             l = vertex.split("/")
                             position = int(l[0])
                             normal = int(l[2])
-                            texture = int(l[1])
-                            faceVerticies.append(v[position-1] + vn[normal-1] + vt[texture-1])
+                            # Check if texture coordinates exist
+                            if len(l) > 1 and l[1]:
+                                texture = int(l[1])
+                                faceVerticies.append(v[position-1] + vn[normal-1] + vt[texture-1])
+                            else:
+                                # Append zeros for missing texture coordinates
+                                faceVerticies.append(v[position-1] + vn[normal-1] + [0, 0])
                         trianglesInFace = len(line) - 2
 
                         vertexOrder = []
@@ -382,6 +417,15 @@ class Mesh:
                     line = f.readline()
             return verticies
         
+        def destroy(self):
+            glDeleteVertexArrays(1, (self.vao,))
+            glDeleteBuffers(1,(self.vbo,))
+            del self.material
+            del self.verticies
+            del self.vao
+            del self.vbo
+            del self.vertexCount
+            del self.position
         """def useTexture(self):
             
             glBindTexture(GL_TEXTURE_2D, self.texture-1)
@@ -529,6 +573,8 @@ class App:
         return objList
     def quit(self):
         self.renderer.destroy()
+        self.scene.destroy()
+
 
 
 class RawObject:
